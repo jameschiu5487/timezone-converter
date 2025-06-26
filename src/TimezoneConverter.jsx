@@ -311,11 +311,11 @@ export default function TimezoneConverter() {
 
   // Initialize search text from saved data
   useEffect(() => {
-    if (sourceZone) {
+    if (sourceZone && !searchSource) {
       const sourceLabel = getLabel(sourceZone);
       setSearchSource(sourceLabel);
     }
-  }, [sourceZone]);
+  }, []); // Only run once on component mount
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -360,17 +360,26 @@ export default function TimezoneConverter() {
 
   const updateSourceZone = (value) => {
     setSearchSource(value);
-    // Try to find exact match first
+    
+    // Only update sourceZone if we find a valid match
     const exactMatch = timezoneData.find((z) => z.label === value);
     if (exactMatch) {
       setSourceZone(exactMatch.value);
-    } else {
-      // Try to parse custom input format
-      const parsedZone = parseTimezoneInput(value);
-      if (parsedZone) {
-        setSourceZone(parsedZone);
-      }
+      return;
     }
+    
+    // Try to parse custom input format
+    const parsedZone = parseTimezoneInput(value);
+    if (parsedZone) {
+      setSourceZone(parsedZone);
+      return;
+    }
+    
+    // If no match found and the input is empty, clear the sourceZone
+    if (!value.trim()) {
+      setSourceZone("");
+    }
+    // If input doesn't match anything, keep the current sourceZone but allow typing
   };
 
   const updateTargetZone = (index, value) => {
