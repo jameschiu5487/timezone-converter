@@ -2,6 +2,35 @@ import { useEffect, useState } from "react";
 
 const timezoneRaw = Intl.supportedValuesOf("timeZone");
 
+// LocalStorage keys
+const STORAGE_KEYS = {
+  WORLD_CLOCK_ZONES: 'timezone-converter-world-zones',
+  CONVERSION_SOURCE: 'timezone-converter-source',
+  CONVERSION_TARGETS: 'timezone-converter-targets',
+  CONVERSION_SEARCHES: 'timezone-converter-searches',
+  LAST_DATE: 'timezone-converter-date',
+  LAST_TIME: 'timezone-converter-time'
+};
+
+// LocalStorage helper functions
+const saveToStorage = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn('Failed to save to localStorage:', error);
+  }
+};
+
+const loadFromStorage = (key, defaultValue) => {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : defaultValue;
+  } catch (error) {
+    console.warn('Failed to load from localStorage:', error);
+    return defaultValue;
+  }
+};
+
 // Function to get current UTC offset for a timezone
 function getCurrentUTCOffset(timezone, date = new Date()) {
   try {
@@ -224,19 +253,69 @@ function getLabel(value) {
 }
 
 export default function TimezoneConverter() {
-  const [zones, setZones] = useState(["Asia/Taipei", "America/New_York", "Europe/London"]);
-  const [sourceZone, setSourceZone] = useState("");
-  const [targetZones, setTargetZones] = useState([""]);
+  // Load saved settings from localStorage or use defaults
+  const [zones, setZones] = useState(() => 
+    loadFromStorage(STORAGE_KEYS.WORLD_CLOCK_ZONES, ["Asia/Taipei", "America/New_York", "Europe/London"])
+  );
+  const [sourceZone, setSourceZone] = useState(() => 
+    loadFromStorage(STORAGE_KEYS.CONVERSION_SOURCE, "")
+  );
+  const [targetZones, setTargetZones] = useState(() => 
+    loadFromStorage(STORAGE_KEYS.CONVERSION_TARGETS, [""])
+  );
   const [searchSource, setSearchSource] = useState("");
-  const [targetSearches, setTargetSearches] = useState([""]);
+  const [targetSearches, setTargetSearches] = useState(() => 
+    loadFromStorage(STORAGE_KEYS.CONVERSION_SEARCHES, [""])
+  );
   const [date, setDate] = useState(() => {
+    const savedDate = loadFromStorage(STORAGE_KEYS.LAST_DATE, null);
+    if (savedDate) return savedDate;
     const today = new Date();
     return today.toISOString().split('T')[0]; // Format: YYYY-MM-DD
   });
-  const [hour, setHour] = useState("12");
-  const [minute, setMinute] = useState("00");
+  const [hour, setHour] = useState(() => 
+    loadFromStorage(STORAGE_KEYS.LAST_TIME, { hour: "12", minute: "00" }).hour
+  );
+  const [minute, setMinute] = useState(() => 
+    loadFromStorage(STORAGE_KEYS.LAST_TIME, { hour: "12", minute: "00" }).minute
+  );
   const [convertedTimes, setConvertedTimes] = useState([]);
   const [now, setNow] = useState(new Date());
+
+  // Auto-save to localStorage when settings change
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.WORLD_CLOCK_ZONES, zones);
+  }, [zones]);
+
+  useEffect(() => {
+    if (sourceZone) {
+      saveToStorage(STORAGE_KEYS.CONVERSION_SOURCE, sourceZone);
+    }
+  }, [sourceZone]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.CONVERSION_TARGETS, targetZones);
+  }, [targetZones]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.CONVERSION_SEARCHES, targetSearches);
+  }, [targetSearches]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.LAST_DATE, date);
+  }, [date]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.LAST_TIME, { hour, minute });
+  }, [hour, minute]);
+
+  // Initialize search text from saved data
+  useEffect(() => {
+    if (sourceZone) {
+      const sourceLabel = getLabel(sourceZone);
+      setSearchSource(sourceLabel);
+    }
+  }, [sourceZone]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -244,6 +323,24 @@ export default function TimezoneConverter() {
     }, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Clear all saved data function
+  const clearAllSavedData = () => {
+    Object.values(STORAGE_KEYS).forEach(key => {
+      localStorage.removeItem(key);
+    });
+    // Reset to defaults
+    setZones(["Asia/Taipei", "America/New_York", "Europe/London"]);
+    setSourceZone("");
+    setTargetZones([""]);
+    setSearchSource("");
+    setTargetSearches([""]);
+    const today = new Date();
+    setDate(today.toISOString().split('T')[0]);
+    setHour("12");
+    setMinute("00");
+    setConvertedTimes([]);
+  };
 
   const addTargetZone = () => {
     if (targetZones.length < 5) {
@@ -325,7 +422,19 @@ export default function TimezoneConverter() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <h1 className="text-3xl font-bold text-center">🌍 World Timezone Converter</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold text-center flex-grow">🌍 World Timezone Converter</h1>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-green-600">💾 Auto-saved</span>
+          <button 
+            onClick={clearAllSavedData}
+            className="bg-gray-500 text-white text-sm px-3 py-1 rounded hover:bg-gray-600"
+            title="Clear all saved preferences"
+          >
+            🗑️ Clear Memory
+          </button>
+        </div>
+      </div>
 
       <div className="flex gap-2">
         <input
