@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 
 const timezoneRaw = Intl.supportedValuesOf("timeZone");
 
+
+
+
+
 // LocalStorage keys
 const STORAGE_KEYS = {
   WORLD_CLOCK_ZONES: 'timezone-converter-world-zones',
@@ -34,6 +38,11 @@ const loadFromStorage = (key, defaultValue) => {
 // Function to get current UTC offset for a timezone
 function getCurrentUTCOffset(timezone, date = new Date()) {
   try {
+    // Special handling for Indian Standard Time
+    if (timezone === "Asia/Calcutta") {
+      return "UTC+5:30";
+    }
+    
     const formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
       timeZoneName: "shortOffset",
@@ -59,7 +68,7 @@ const TIMEZONE_COUNTRY_MAP = {
   "Asia/Jakarta": "Asia/Indonesia/Jakarta",
   "Asia/Manila": "Asia/Philippines/Manila",
   "Asia/Kuala_Lumpur": "Asia/Malaysia/Kuala Lumpur",
-  "Asia/Kolkata": "Asia/India/Kolkata",
+  "Asia/Calcutta": "Asia/India/New Delhi (IST)",
   "Asia/Karachi": "Asia/Pakistan/Karachi",
   "Asia/Dubai": "Asia/UAE/Dubai",
   "Asia/Tehran": "Asia/Iran/Tehran",
@@ -166,6 +175,19 @@ const TIMEZONE_COUNTRY_MAP = {
   "Pacific/Port_Moresby": "Oceania/Papua New Guinea/Port Moresby",
   "Pacific/Noumea": "Oceania/New Caledonia/Noumea",
   "Pacific/Tahiti": "Oceania/French Polynesia/Tahiti",
+
+  // Indian Ocean territories
+  "Indian/Antananarivo": "Indian Ocean/Madagascar/Antananarivo",
+  "Indian/Chagos": "Indian Ocean/Chagos Islands/Chagos",
+  "Indian/Christmas": "Indian Ocean/Christmas Island/Christmas",
+  "Indian/Cocos": "Indian Ocean/Cocos Islands/Cocos",
+  "Indian/Comoro": "Indian Ocean/Comoros/Moroni",
+  "Indian/Kerguelen": "Indian Ocean/Kerguelen Islands/Kerguelen",
+  "Indian/Mahe": "Indian Ocean/Seychelles/Mahe",
+  "Indian/Maldives": "Indian Ocean/Maldives/Male",
+  "Indian/Mauritius": "Indian Ocean/Mauritius/Port Louis",
+  "Indian/Mayotte": "Indian Ocean/Mayotte/Mamoudzou",
+  "Indian/Reunion": "Indian Ocean/Reunion/Saint-Denis",
 };
 
 // Generate timezone data with dynamic UTC offsets
@@ -180,6 +202,12 @@ const timezoneData = timezoneRaw.map((tz) => {
     };
   }
   
+  // Skip unmapped Indian Ocean timezones to avoid confusion with India country
+  // Note: "Indian/" prefix refers to Indian Ocean territories, not India the country
+  if (tz.startsWith('Indian/') && !TIMEZONE_COUNTRY_MAP[tz]) {
+    return null;
+  }
+  
   // Fallback to original logic for unmapped timezones
   const city = tz.split("/").pop();
   const region = tz.split("/")[0];
@@ -187,7 +215,9 @@ const timezoneData = timezoneRaw.map((tz) => {
   
   const label = `${region}/${country}/${city}(${currentOffset})`;
   return { label, value: tz };
-});
+}).filter(Boolean); // Remove null entries
+
+
 
 // Function to parse custom timezone input format
 function parseTimezoneInput(input) {
@@ -255,7 +285,7 @@ function getLabel(value) {
 export default function TimezoneConverter() {
   // Load saved settings from localStorage or use defaults
   const [zones, setZones] = useState(() => 
-    loadFromStorage(STORAGE_KEYS.WORLD_CLOCK_ZONES, ["Asia/Taipei", "America/New_York", "Europe/London"])
+    loadFromStorage(STORAGE_KEYS.WORLD_CLOCK_ZONES, ["Asia/Taipei", "America/New_York", "Europe/London", "Asia/Calcutta"])
   );
   const [sourceZone, setSourceZone] = useState(() => 
     loadFromStorage(STORAGE_KEYS.CONVERSION_SOURCE, "")
@@ -330,7 +360,7 @@ export default function TimezoneConverter() {
       localStorage.removeItem(key);
     });
     // Reset to defaults
-    setZones(["Asia/Taipei", "America/New_York", "Europe/London"]);
+    setZones(["Asia/Taipei", "America/New_York", "Europe/London", "Asia/Calcutta"]);
     setSourceZone("");
     setTargetZones([""]);
     setSearchSource("");
@@ -449,7 +479,7 @@ export default function TimezoneConverter() {
         <input
           list="timezones"
           className="flex-grow border px-3 py-2 rounded"
-          placeholder="Enter timezone (e.g., Asia/Taiwan/Taipei(UTC+8))"
+          placeholder="Enter timezone (e.g., Asia/Taiwan/Taipei(UTC+8) or Asia/India/New Delhi (IST)(UTC+5:30))"
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               const input = e.currentTarget.value;
