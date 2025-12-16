@@ -42,7 +42,7 @@ function getCurrentUTCOffset(timezone, date = new Date()) {
     if (timezone === "Asia/Calcutta") {
       return "UTC+5:30";
     }
-    
+
     const formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
       timeZoneName: "shortOffset",
@@ -193,26 +193,26 @@ const TIMEZONE_COUNTRY_MAP = {
 // Generate timezone data with dynamic UTC offsets
 const timezoneData = timezoneRaw.map((tz) => {
   const currentOffset = getCurrentUTCOffset(tz);
-  
+
   // Use our improved display mapping if available
   if (TIMEZONE_COUNTRY_MAP[tz]) {
-    return { 
-      label: `${TIMEZONE_COUNTRY_MAP[tz]}(${currentOffset})`, 
-      value: tz 
+    return {
+      label: `${TIMEZONE_COUNTRY_MAP[tz]}(${currentOffset})`,
+      value: tz
     };
   }
-  
+
   // Skip unmapped Indian Ocean timezones to avoid confusion with India country
   // Note: "Indian/" prefix refers to Indian Ocean territories, not India the country
   if (tz.startsWith('Indian/') && !TIMEZONE_COUNTRY_MAP[tz]) {
     return null;
   }
-  
+
   // Fallback to original logic for unmapped timezones
   const city = tz.split("/").pop();
   const region = tz.split("/")[0];
   let country = region === "America" ? "United States" : region;
-  
+
   const label = `${region}/${country}/${city}(${currentOffset})`;
   return { label, value: tz };
 }).filter(Boolean); // Remove null entries
@@ -225,55 +225,157 @@ function parseTimezoneInput(input) {
   const match = input.match(/^(.+?)\/(.+?)\/(.+?)\(UTC([+-]\d+(?::\d+)?)\)$/);
   if (match) {
     const [, region, country, city, offset] = match;
-    
+
     // Try to find exact match in our timezone data
     const exactMatch = timezoneData.find(tz => tz.label === input);
     if (exactMatch) {
       return exactMatch.value;
     }
-    
+
     // Try to find by searching for the city in the timezone identifiers
     const cityMatch = timezoneRaw.find(tz => {
       const tzCity = tz.split("/").pop().replace(/_/g, " ");
       const inputCity = city.replace(/_/g, " ");
       return tzCity.toLowerCase() === inputCity.toLowerCase() && tz.includes(region);
     });
-    
+
     if (cityMatch) {
       return cityMatch;
     }
   }
-  
+
   // Fallback: try to find partial matches
-  const partialMatch = timezoneData.find(tz => 
+  const partialMatch = timezoneData.find(tz =>
     tz.label.toLowerCase().includes(input.toLowerCase()) ||
     tz.value.toLowerCase().includes(input.toLowerCase())
   );
-  
+
   return partialMatch ? partialMatch.value : null;
 }
 
 function convertToTimezoneTime(year, month, day, hour, minute, baseZone, targetZone) {
-  const inputDate = new Date(year, month - 1, day, hour, minute, 0, 0);
-  const getTimezoneOffsetMs = (tz, date) => {
-    const utc = new Date(date.toLocaleString("en-US", { timeZone: "UTC" }));
-    const target = new Date(date.toLocaleString("en-US", { timeZone: tz }));
-    return target.getTime() - utc.getTime();
-  };
-  const baseOffsetMs = getTimezoneOffsetMs(baseZone, inputDate);
-  const targetOffsetMs = getTimezoneOffsetMs(targetZone, inputDate);
-  const diffMs = targetOffsetMs - baseOffsetMs;
-  const targetTime = new Date(inputDate.getTime() + diffMs);
+  /**
+   * Robust timezone conversion that properly handles DST transitions.
+   * 
+   * The approach:
+   * 1. Create a string representation of the date/time we want in the SOURCE timezone
+   * 2. Find the UTC timestamp that corresponds to that local time in the source timezone
+   * 3. Convert that UTC timestamp to the local time in the TARGET timezone
+   * 
+   * This correctly handles DST because we use Intl.DateTimeFormat which knows about
+   * DST rules for each timezone at any given date.
+   */
 
-  const formatDate = (d) =>
-    `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}, ` +
-    `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  // Helper function to create a UTC timestamp from local time in a specific timezone
+  const createUTCFromLocalTime = (year, month, day, hour, minute, timezone) => {
+    // Create an initial guess - a date in the local system timezone
+    let date = new Date(year, month - 1, day, hour, minute, 0, 0);
+
+    // Get what this date looks like in the target timezone
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+
+    // Parse the formatted string to get the actual values in that timezone
+    const parts = formatter.formatToParts(date);
+    const tzValues = {};
+    parts.forEach(part => {
+      if (part.type !== 'literal') {
+        tzValues[part.type] = parseInt(part.value);
+      }
+    });
+
+    // Calculate the difference between what we want and what we got
+    const diff = {
+      year: year - tzValues.year,
+      month: month - tzValues.month,
+      day: day - tzValues.day,
+      hour: hour - tzValues.hour,
+      minute: minute - tzValues.minute
+    };
+
+    // Adjust the date by the difference to get closer to the correct UTC time
+    // This iterative approach handles DST transitions correctly
+    date = new Date(
+      date.getFullYear() + diff.year,
+      date.getMonth() + diff.month,
+      date.getDate() + diff.day,
+      date.getHours() + diff.hour,
+      date.getMinutes() + diff.minute,
+      0, 0
+    );
+
+    // Verify and refine if needed (handles edge cases around DST transitions)
+    const verifyParts = formatter.formatToParts(date);
+    const verifyValues = {};
+    verifyParts.forEach(part => {
+      if (part.type !== 'literal') {
+        verifyValues[part.type] = parseInt(part.value);
+      }
+    });
+
+    // If still not exact, make one more adjustment
+    if (verifyValues.hour !== hour || verifyValues.minute !== minute) {
+      const finalDiff = {
+        hour: hour - verifyValues.hour,
+        minute: minute - verifyValues.minute
+      };
+      date = new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        date.getHours() + finalDiff.hour,
+        date.getMinutes() + finalDiff.minute,
+        0, 0
+      );
+    }
+
+    return date;
+  };
+
+  // Helper function to format a date in a specific timezone
+  const formatInTimezone = (date, timezone) => {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+
+    const parts = formatter.formatToParts(date);
+    const values = {};
+    parts.forEach(part => {
+      if (part.type !== 'literal') {
+        values[part.type] = part.value;
+      }
+    });
+
+    return `${values.year}/${values.month}/${values.day}, ${values.hour}:${values.minute}:${values.second}`;
+  };
+
+  // Step 1: Create a UTC timestamp that represents the input time in the source timezone
+  const utcDate = createUTCFromLocalTime(year, month, day, hour, minute, baseZone);
+
+  // Step 2: Format this UTC timestamp in both source and target timezones
+  const baseTime = formatInTimezone(utcDate, baseZone);
+  const targetTime = formatInTimezone(utcDate, targetZone);
 
   return {
     baseLabel: getLabel(baseZone),
     targetLabel: getLabel(targetZone),
-    baseTime: formatDate(inputDate),
-    targetTime: formatDate(targetTime),
+    baseTime: baseTime,
+    targetTime: targetTime,
   };
 }
 
@@ -284,17 +386,17 @@ function getLabel(value) {
 
 export default function TimezoneConverter() {
   // Load saved settings from localStorage or use defaults
-  const [zones, setZones] = useState(() => 
+  const [zones, setZones] = useState(() =>
     loadFromStorage(STORAGE_KEYS.WORLD_CLOCK_ZONES, ["Asia/Taipei", "America/New_York", "Europe/London", "Asia/Calcutta"])
   );
-  const [sourceZone, setSourceZone] = useState(() => 
+  const [sourceZone, setSourceZone] = useState(() =>
     loadFromStorage(STORAGE_KEYS.CONVERSION_SOURCE, "")
   );
-  const [targetZones, setTargetZones] = useState(() => 
+  const [targetZones, setTargetZones] = useState(() =>
     loadFromStorage(STORAGE_KEYS.CONVERSION_TARGETS, [""])
   );
   const [searchSource, setSearchSource] = useState("");
-  const [targetSearches, setTargetSearches] = useState(() => 
+  const [targetSearches, setTargetSearches] = useState(() =>
     loadFromStorage(STORAGE_KEYS.CONVERSION_SEARCHES, [""])
   );
   const [date, setDate] = useState(() => {
@@ -303,10 +405,10 @@ export default function TimezoneConverter() {
     const today = new Date();
     return today.toISOString().split('T')[0]; // Format: YYYY-MM-DD
   });
-  const [hour, setHour] = useState(() => 
+  const [hour, setHour] = useState(() =>
     loadFromStorage(STORAGE_KEYS.LAST_TIME, { hour: "12", minute: "00" }).hour
   );
-  const [minute, setMinute] = useState(() => 
+  const [minute, setMinute] = useState(() =>
     loadFromStorage(STORAGE_KEYS.LAST_TIME, { hour: "12", minute: "00" }).minute
   );
   const [convertedTimes, setConvertedTimes] = useState([]);
@@ -390,21 +492,21 @@ export default function TimezoneConverter() {
 
   const updateSourceZone = (value) => {
     setSearchSource(value);
-    
+
     // Only update sourceZone if we find a valid match
     const exactMatch = timezoneData.find((z) => z.label === value);
     if (exactMatch) {
       setSourceZone(exactMatch.value);
       return;
     }
-    
+
     // Try to parse custom input format
     const parsedZone = parseTimezoneInput(value);
     if (parsedZone) {
       setSourceZone(parsedZone);
       return;
     }
-    
+
     // If no match found and the input is empty, clear the sourceZone
     if (!value.trim()) {
       setSourceZone("");
@@ -436,7 +538,7 @@ export default function TimezoneConverter() {
 
   const convertTime = () => {
     if (!sourceZone) return;
-    
+
     const dateObj = new Date(date + 'T00:00:00'); // Parse as local date
     const results = targetZones
       .filter(zone => zone) // Only process non-empty target zones
@@ -451,7 +553,7 @@ export default function TimezoneConverter() {
           targetZone
         );
       });
-    
+
     setConvertedTimes(results);
   };
 
@@ -465,7 +567,7 @@ export default function TimezoneConverter() {
         <h1 className="text-3xl font-bold text-center flex-grow">🌍 World Timezone Converter</h1>
         <div className="flex items-center gap-2">
           <span className="text-xs text-green-600">💾 Auto-saved</span>
-          <button 
+          <button
             onClick={clearAllSavedData}
             className="bg-gray-500 text-white text-sm px-3 py-1 rounded hover:bg-gray-600"
             title="Clear all saved preferences"
@@ -484,14 +586,14 @@ export default function TimezoneConverter() {
             if (e.key === "Enter") {
               const input = e.currentTarget.value;
               let match = timezoneData.find(z => z.label === input);
-              
+
               if (!match) {
                 const parsedZone = parseTimezoneInput(input);
                 if (parsedZone) {
                   match = { value: parsedZone, label: getLabel(parsedZone) };
                 }
               }
-              
+
               if (match && !zones.includes(match.value)) {
                 setZones([...zones, match.value]);
               }
@@ -515,13 +617,13 @@ export default function TimezoneConverter() {
             second: "2-digit",
             hour12: false,
           }).format(now);
-          
+
           const displayName = getLabel(zone);
           const shortName = displayName.split('(')[0]; // Get part before (UTC+X)
-          
+
           return (
             <div key={zone} className="border rounded shadow p-4 relative">
-              <button 
+              <button
                 onClick={() => setZones(zones.filter(z => z !== zone))}
                 className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-sm"
               >
@@ -538,7 +640,7 @@ export default function TimezoneConverter() {
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">⏱️ Time Conversion Tool</h2>
           {targetZones.length < 5 && (
-            <button 
+            <button
               onClick={addTargetZone}
               className="bg-green-600 text-white font-semibold px-4 py-1 rounded text-sm hover:bg-green-700"
             >
@@ -574,7 +676,7 @@ export default function TimezoneConverter() {
                     onChange={(e) => updateTargetZone(index, e.target.value)}
                   />
                   {targetZones.length > 1 && (
-                    <button 
+                    <button
                       onClick={() => removeTargetZone(index)}
                       className="text-red-500 hover:text-red-700 px-2 py-1 text-sm"
                     >
@@ -617,8 +719,8 @@ export default function TimezoneConverter() {
         </div>
 
         <div className="text-center">
-          <button 
-            onClick={convertTime} 
+          <button
+            onClick={convertTime}
             className="bg-blue-600 text-white font-semibold px-8 py-2 rounded shadow hover:bg-blue-700"
             disabled={!sourceZone}
           >
