@@ -730,14 +730,12 @@ export default function TimezoneConverter() {
 
         {convertedTimes.length > 0 && (
           <div className="space-y-3">
-            <div className="text-lg font-semibold text-center mb-4">
-              Converting from <span className="text-blue-600">{getLabel(sourceZone).split('(')[0]}</span>
+            <div className="bg-gray-100 rounded p-4 text-center font-medium text-blue-600">
+              {convertedTimes[0].baseLabel.split('(')[0].trim()}: {convertedTimes[0].baseTime}
             </div>
             {convertedTimes.map((result, index) => (
-              <div key={index} className="bg-gray-100 rounded p-4 text-center font-medium space-y-1">
-                <div className="text-green-600 font-semibold">Target {index + 1}: {result.targetLabel.split('(')[0]}</div>
-                <div className="text-blue-600">Source Time: {result.baseTime}</div>
-                <div className="text-green-600">Target Time: {result.targetTime}</div>
+              <div key={index} className="bg-gray-100 rounded p-4 text-center font-medium text-green-600">
+                {result.targetLabel.split('(')[0].trim()}: {result.targetTime}
               </div>
             ))}
           </div>
