@@ -729,13 +729,15 @@ export default function TimezoneConverter() {
         </div>
 
         {convertedTimes.length > 0 && (
-          <div className="space-y-3">
-            <div className="bg-gray-100 rounded p-4 text-center font-medium text-blue-600">
-              {convertedTimes[0].baseLabel.split('(')[0].trim()}: {convertedTimes[0].baseTime}
+          <div className="bg-gray-100 rounded p-4 space-y-1 font-medium">
+            {/* Source row */}
+            <div className="text-blue-600">
+              {convertedTimes[0].baseLabel.split('(')[0].trim()}： {convertedTimes[0].baseTime}
             </div>
+            {/* Target rows */}
             {convertedTimes.map((result, index) => (
-              <div key={index} className="bg-gray-100 rounded p-4 text-center font-medium text-green-600">
-                {result.targetLabel.split('(')[0].trim()}: {result.targetTime}
+              <div key={index} className="text-green-700">
+                {result.targetLabel.split('(')[0].trim()}： {result.targetTime}
               </div>
             ))}
           </div>
